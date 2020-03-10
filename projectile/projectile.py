@@ -6,7 +6,7 @@ else:
     from Tkinter import *
     import ttk
 import time
-from math import sin,cos,acos,asin
+from math import sin,cos,acos,asin,exp,log,atan
 from threading import Thread
 
 callback_args = []
@@ -22,8 +22,11 @@ y0 = 490
 size = 15
 v0x = 60
 v0y = -80
+b_air = 0.02
+b=b_air
 time_scale = 0.2
 token = True
+air = False
 
 def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
     global token
@@ -37,14 +40,29 @@ def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
     y = y0
     vx = v0x
     vy = v0y
+    b = float(callback_args[9].get())
+    tau = 1/b
+    vL = g*tau
+    v_euler = [y0]
+    last_t = 0
+    is_air = air
     t0 = time.time()
-    
+
     while y <= y0:
         t = (time.time() - t0)/time_scale
-        x = s(ax,v0x,x0,t)
-        y = s(ay,v0y,y0,t)
-        vx = v(ax,v0x,t)
-        vy = v(ay,v0y,t)
+        h = (t-last_t)
+        last_t = t
+        if is_air:
+            x = 1/b * v0x*(1-exp(-b * t)) + x0
+            vx = v0x*exp(-b * t)
+            vy = vL - (vL-v0y)*exp(-t/tau)
+            v_euler.append(v_euler[-1] + h*vy)
+            y = v_euler[-1]
+        else:
+            x = s(ax,v0x,x0,t)
+            y = s(ay,v0y,y0,t)
+            vx = v(ax,v0x,t)
+            vy = v(ay,v0y,t)
         kin = ecin(1, (vx**2 + vy**2)**0.5)
         pot = epot(1, g, -(y-y0))
         draw(w, t, x, y, vx, vy, pot, kin, mecpbar, potpbar, kinpbar)
@@ -115,16 +133,22 @@ def mousewheeldown(e):
     initprojectile(1, 0)
     
 def mousemotion(e):
-    if len(callback_args) < 10:
+    if len(callback_args) < 11:
         callback_args.append(e.x)
     else:
-        direction = 1 if (e.x - callback_args[9]) >= 0 else -1
-        callback_args[9] = e.x
+        direction = 1 if (e.x - callback_args[10]) >= 0 else -1
+        callback_args[10] = e.x
         initprojectile(0, direction)
 
 def mouserelease(e):
-    if len(callback_args) == 10:
-        callback_args.remove(callback_args[9])
+    if len(callback_args) == 11:
+        callback_args.remove(callback_args[10])
+
+def dumpswitched():
+    global air
+    air = not air
+    bField = callback_args[9]
+    bField.state(['{}disabled'.format('!' if air else '')])
 
 def draw(w, t, x, y, vx, vy, pot, kin, mecpbar, potbbar, kinpbar):
     mec = pot + kin
@@ -166,6 +190,11 @@ ttk.Label(master, text="Kinetic Energy").place(x=400,y=50)
 kinpbar = ttk.Progressbar(master, orient="horizontal", length=200)
 kinpbar.place(x=530,y=50)
 
+dumped = ttk.Checkbutton(master, text="Dumped", command=dumpswitched).place(x=800,y=30)
+bField = ttk.Entry(master)
+bField.insert(0,"{}".format(b_air))
+bField.place(x=900, y=30)
+bField.state(['disabled'])
 w = Canvas(master, width=wwidth, height=wheight-100)
 
 w.create_line(x0, y0, wwidth, y0)
@@ -207,13 +236,14 @@ callback_args.append(v0y)
 callback_args.append(mecpbar)
 callback_args.append(potpbar)
 callback_args.append(kinpbar)
+callback_args.append(bField)
 
 w.place(x=10, y=80)
 master.bind("<Return>", keydown)
-master.bind("<B1-Motion>", mousemotion)
-master.bind("<ButtonRelease-1>", mouserelease)
-master.bind("<Button-4>", mousewheelup)
-master.bind("<Button-5>", mousewheeldown)
+w.bind("<B1-Motion>", mousemotion)
+w.bind("<ButtonRelease-1>", mouserelease)
+w.bind("<Button-4>", mousewheelup)
+w.bind("<Button-5>", mousewheeldown)
 
 
 initprojectile(0, 0)
