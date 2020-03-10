@@ -36,6 +36,9 @@ def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
     token = False
     
     w.delete("state")
+    w.delete("text")
+    w.delete("plot")
+    
     mec0 = ecin(1, (v0x**2 + v0y**2)**0.5)
     ax = 0
     ay = g
@@ -112,6 +115,8 @@ def keydown(e):
 def initprojectile(v0ydelta=1, v0xdelta=1):
     w.delete("proj")
     w.delete("traj")
+    w.delete("text")
+
     x0 = callback_args[1]
     y0 = callback_args[2]
     v0x = callback_args[4]
@@ -125,6 +130,8 @@ def initprojectile(v0ydelta=1, v0xdelta=1):
     
     callback_args[4] = v0x
     callback_args[5] = v0y
+    
+    kin0 = ecin(1, (v0x**2 + v0y**2)**0.5)
     
     phi0 = acos(v0x/((v0x**2 + v0y**2)**0.5))
     w.create_line(x0, y0, x0 + size*cos(phi0), y0 - size*sin(phi0), fill="blue", tag="proj", width=size/3)
@@ -143,11 +150,16 @@ def initprojectile(v0ydelta=1, v0xdelta=1):
             x += (max_x - x0)/wwidth 
         for i in range(0, len(xcoords) - 1):
             w.create_line(xcoords[i], ycoords[i], xcoords[i+1], ycoords[i+1], fill="red", width=1, tag="traj")
-    maxeval = epot(1,g,x0) + ecin(1, (v0x**2 + v0y**2)**0.5)
+    
+    maxeval = epot(1,g,x0) + kin0
     mecpbar["maximum"] = maxeval
     potpbar["maximum"] = maxeval
     kinpbar["maximum"] = maxeval
+    mecpbar["value"] = 0
+    potpbar["value"] = 0
+    kinpbar["value"] = kin0
     
+    drawmotionstate(w, v0x, v0y, kin0, kin0, 0, 0, 0)
 
 def mousewheelup(e):
     initprojectile(-1, 0)
@@ -172,16 +184,19 @@ def dumpswitched():
     air = not air
     bField = callback_args[9]
     bField.state(['{}disabled'.format('!' if air else '')])
-
-def draw(w, t, x, y, vx, vy, pot, kin, mec, loss, mecpbar, potbbar, kinpbar, simulation_states=None):
-    w.delete("proj")
-    w.delete("timetext")
-    w.delete("text")
     
+def drawmotionstate(w, vx, vy, mec, kin, pot, loss, t):
+    w.delete("text")
     w.create_text(200,50, text="Speed x: {} m/s\nSpeed y: {} m/s\nSpeed magnitude: {} m/s\nKinetic energy: {} J\nPotential energy: {} J\nMechanical energy: {} J\nEnergy loss: {} J"\
     .format(round(vx,5), round(-vy,5), round((vx**2 + vy**2)**0.5,5), round(kin,5), round(pot,5), round(mec,5), round(loss,5)), tag="text", font=("Courier", 8))
     w.create_text(w.winfo_width()-100, 60, tag="timetext", text="t = {} s".format(round(t,5)), font=("Courier", 10))
-
+    
+def draw(w, t, x, y, vx, vy, pot, kin, mec, loss, mecpbar, potbbar, kinpbar, simulation_states=None):
+    w.delete("proj")
+    w.delete("timetext")
+    
+    drawmotionstate(w, vx, vy, mec, kin, pot, loss, t)
+    
     phi0 = acos(vx/((vx**2 + vy**2)**0.5))
     if vy >= 0:
         phi0 = -phi0
