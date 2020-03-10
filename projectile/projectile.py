@@ -10,6 +10,7 @@ from math import sin,cos,acos,asin,exp,log,atan
 from threading import Thread
 
 callback_args = []
+simulation_states=[]
 wheight = 650
 wwidth = 1300
 g = 9.80665
@@ -21,7 +22,7 @@ x0 = 20
 y0 = 490
 size = 15
 v0x = 60
-v0y = -80
+v0y = -75
 b_air = 0.02
 b=b_air
 time_scale = 0.2
@@ -32,20 +33,24 @@ def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
     global token
     if not token:
         return
-    
     token = False
+    
+    w.delete("state")
+    mec0 = ecin(1, (v0x**2 + v0y**2)**0.5)
     ax = 0
     ay = g
     x = x0
     y = y0
     vx = v0x
     vy = v0y
+    simulation_states = []
     b = float(callback_args[9].get())
     tau = 1/b
     vL = g*tau
     v_euler = [y0]
     last_t = 0
     is_air = air
+    iterations = 0
     t0 = time.time()
 
     while y <= y0:
@@ -65,11 +70,29 @@ def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
             vy = v(ay,v0y,t)
         kin = ecin(1, (vx**2 + vy**2)**0.5)
         pot = epot(1, g, -(y-y0))
-        draw(w, t, x, y, vx, vy, pot, kin, mecpbar, potpbar, kinpbar)
-    
+        mec = pot + kin
+        loss = mec0 - mec
+        record_state(simulation_states, t, x, y, vx, vy, pot, kin, mec, loss)
+        draw(w, t, x, y, vx, vy, pot, kin, mec, loss, mecpbar, potpbar, kinpbar, simulation_states)
+        iterations += 1
+        time.sleep(0.01)
+        
     token=True
-    draw(w, t, x0, y0, v0x, v0y, 0, 0, mecpbar, potpbar, kinpbar)
-    w.delete("text")
+    #draw(w, t, x0, y0, v0x, v0y, 0, 0, 0, 0, mecpbar, potpbar, kinpbar) DRAW MAIN RESULTS AS SPEED DIFFERENCE HERE
+    
+def record_state(simulation_states, t, x, y, vx, vy, pot, kin, mec, loss):
+    simulation_state = {}
+    simulation_state['t'] = t
+    simulation_state['x'] = x
+    simulation_state['y'] = y
+    simulation_state['vx'] = vx
+    simulation_state['vy'] = vy
+    simulation_state['pot'] = pot
+    simulation_state['kin'] = kin
+    simulation_state['mec'] = mec
+    simulation_state['loss'] = loss
+    
+    simulation_states.append(simulation_state)
 
 def keydown(e):
     w = callback_args[0]
@@ -89,7 +112,6 @@ def keydown(e):
 def initprojectile(v0ydelta=1, v0xdelta=1):
     w.delete("proj")
     w.delete("traj")
-
     x0 = callback_args[1]
     y0 = callback_args[2]
     v0x = callback_args[4]
@@ -125,6 +147,7 @@ def initprojectile(v0ydelta=1, v0xdelta=1):
     mecpbar["maximum"] = maxeval
     potpbar["maximum"] = maxeval
     kinpbar["maximum"] = maxeval
+    
 
 def mousewheelup(e):
     initprojectile(-1, 0)
@@ -150,13 +173,13 @@ def dumpswitched():
     bField = callback_args[9]
     bField.state(['{}disabled'.format('!' if air else '')])
 
-def draw(w, t, x, y, vx, vy, pot, kin, mecpbar, potbbar, kinpbar):
-    mec = pot + kin
+def draw(w, t, x, y, vx, vy, pot, kin, mec, loss, mecpbar, potbbar, kinpbar, simulation_states=None):
     w.delete("proj")
     w.delete("timetext")
     w.delete("text")
-    w.create_text(200,50, text="Speed x: {} m/s\nSpeed y: {} m/s\nSpeed magnitude: {} m/s\nKinetic energy: {} J\nPotential energy: {} J\nMechanical energy: {} J"\
-    .format(round(vx,5), round(-vy,5), round((vx**2 + vy**2)**0.5,5), round(kin,5), round(pot,5), round(mec,5)), tag="text", font=("Courier", 8))
+    
+    w.create_text(200,50, text="Speed x: {} m/s\nSpeed y: {} m/s\nSpeed magnitude: {} m/s\nKinetic energy: {} J\nPotential energy: {} J\nMechanical energy: {} J\nEnergy loss: {} J"\
+    .format(round(vx,5), round(-vy,5), round((vx**2 + vy**2)**0.5,5), round(kin,5), round(pot,5), round(mec,5), round(loss,5)), tag="text", font=("Courier", 8))
     w.create_text(w.winfo_width()-100, 60, tag="timetext", text="t = {} s".format(round(t,5)), font=("Courier", 10))
 
     phi0 = acos(vx/((vx**2 + vy**2)**0.5))
@@ -172,8 +195,80 @@ def draw(w, t, x, y, vx, vy, pot, kin, mecpbar, potbbar, kinpbar):
     mecpbar["value"] = mec
     potpbar["value"] = pot
     kinpbar["value"] = kin
-    time.sleep(0.01)
     
+    if simulation_states is not None:
+        if len(simulation_states) == 1:
+            create_plot(w)
+        else:
+            update_plot(w, simulation_states)
+    
+def create_plot(w):
+    update_plot(w, None, True)    
+    
+def update_plot(w, simulation_states, create=False):
+    px0 = 2*w.winfo_width()/3
+    py0 = w.winfo_height()/3.5
+    s0 = -100
+    sF = 100
+    pyf = py0 - s0 + sF
+    pxf = w.winfo_width() - 20
+    t0 = 0
+    tF = 20
+    x_scale = (pxf-px0)/(tF-t0)
+    y_scale = (pyf-py0)/(sF-s0)
+    vycol = "red"
+    vxcol = "blue"
+    wcol = "magenta"
+    vmcol = "green"
+
+    if create:
+        w.create_rectangle(px0, py0, pxf, pyf, fill="white", tag="plot")
+        w.create_line(px0, py0 + (pyf-py0)/2, pxf, py0 + (pyf-py0)/2, tag="plot")
+        w.create_text(pxf-50, py0+5, text="Speed x", fill=vxcol, font=("Courier", 8))
+        w.create_text(pxf-50, py0+17, text="Speed y", fill=vycol, font=("Courier", 8))
+        w.create_text(pxf-50, py0+29, text="||Speed||", fill=vmcol, font=("Courier", 8))
+        w.create_text(pxf-50, py0+41, text="Energy loss/100", fill=wcol, font=("Courier", 8))
+        abscissa = px0
+        ordinate = py0 + 20 * y_scale
+        base_valuey = ((pyf-py0)/2) / y_scale
+        
+        while abscissa < pxf:
+            w.create_line(abscissa, py0, abscissa, pyf, tag="plot", fill="gray", dash=(1,5))
+            w.create_line(abscissa, py0 + (pyf-py0)/2 + 3, abscissa, py0 + (pyf-py0)/2 - 3, tag="plot")
+            x_value = int((abscissa-px0) / x_scale)
+            w.create_text(abscissa+3, py0 + (pyf-py0)/2 + 8, text="{}".format(x_value), tag="plot", font=("Courier", 6))
+            w.create_text(pxf-25, py0 + (pyf-py0)/2 + 15, text="t [s]", tag="plot", font=("Courier", 8))
+            
+            abscissa += x_scale
+       
+        while ordinate < pyf:
+            w.create_line(px0, ordinate, pxf, ordinate, tag="plot", fill="gray", dash=(1,5))
+            w.create_line(px0, ordinate, px0 + 6, ordinate, tag="plot")
+            y_value = - (((ordinate - py0) / y_scale) - base_valuey)
+            if y_value != 0.0:
+                w.create_text(px0 + 20, ordinate, text="{}".format(y_value), tag="plot", font=("Courier", 6))
+            ordinate += 20 * y_scale
+    else:
+        if len(simulation_states) > 1:
+            speedm2 = (simulation_states[-2]['vy']**2 + simulation_states[-2]['vx']**2)**0.5
+            speedm1 = (simulation_states[-1]['vy']**2 + simulation_states[-2]['vx']**2)**0.5
+            
+            w.create_line(px0 + simulation_states[-2]['t']*x_scale, py0 + (pyf-py0)/2 + simulation_states[-2]['vy']*y_scale,\
+                          px0 + simulation_states[-1]['t']*x_scale, py0 + (pyf-py0)/2 + simulation_states[-1]['vy']*y_scale,\
+                          fill=vycol, tag="state")
+           
+            w.create_line(px0 + simulation_states[-2]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-2]['vx']*y_scale,\
+                         px0 + simulation_states[-1]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-1]['vx']*y_scale,\
+                         fill=vxcol, tag="state")
+                         
+            w.create_line(px0 + simulation_states[-2]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-2]['loss']/100*y_scale,\
+                                 px0 + simulation_states[-1]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-1]['loss']/100*y_scale,\
+                                 fill=wcol, tag="state")
+                                 
+            w.create_line(px0 + simulation_states[-2]['t']*x_scale, py0 + (pyf-py0)/2 - speedm2*y_scale,\
+                                 px0 + simulation_states[-1]['t']*x_scale, py0 + (pyf-py0)/2 -speedm1*y_scale,\
+                                 fill=vmcol, tag="state")
+
 master = Tk()
 master.title("Projectile Motion")
 master.geometry("{}x{}".format(wwidth,wheight))
