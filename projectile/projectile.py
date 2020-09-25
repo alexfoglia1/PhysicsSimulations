@@ -1,3 +1,5 @@
+#TODO play with mass, draw info without overload motion thread
+
 import sys
 if sys.version_info > (3, 0):
     from tkinter import *
@@ -10,9 +12,9 @@ from math import sin,cos,acos,asin,exp,log,atan
 from threading import Thread
 
 callback_args = []
-simulation_states=[]
-wheight = 650
-wwidth = 1300
+simulation_states = []
+wheight = 680
+wwidth = 1350
 g = 9.80665
 s = lambda a,v0,s0,t : 0.5*a*(t**2) + v0*t + s0
 v = lambda a,v0,t : a*t + v0
@@ -23,11 +25,11 @@ y0 = 490
 size = 15
 v0x = 60
 v0y = -75
-b_air = 0.02
-b=b_air
-time_scale = 0.2
+b= 0.0001
+time_scale = 2
 token = True
 air = False
+mass = 0.01
 
 def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
     global token
@@ -39,7 +41,7 @@ def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
     w.delete("text")
     w.delete("plot")
     
-    mec0 = ecin(1, (v0x**2 + v0y**2)**0.5)
+    mec0 = ecin(mass, (v0x**2 + v0y**2)**0.5)
     ax = 0
     ay = g
     x = x0
@@ -48,21 +50,23 @@ def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
     vy = v0y
     simulation_states = []
     b = float(callback_args[9].get())
-    tau = 1/b
+    tau = mass/b
     vL = g*tau
     v_euler = [y0]
     last_t = 0
     is_air = air
     iterations = 0
+    flag = False
     t0 = time.time()
-
-    while y <= y0:
-        t = (time.time() - t0)/time_scale
+    
+    while True:
+        t = (time.time() - t0)*time_scale
         h = (t-last_t)
         last_t = t
+        
         if is_air:
-            x = 1/b * v0x*(1-exp(-b * t)) + x0
-            vx = v0x*exp(-b * t)
+            x = mass/b * v0x*(1-exp(-b/mass * t)) + x0
+            vx = v0x*exp(-b/mass * t)
             vy = vL - (vL-v0y)*exp(-t/tau)
             v_euler.append(v_euler[-1] + h*vy)
             y = v_euler[-1]
@@ -71,17 +75,21 @@ def motion(w, x0, y0, size, v0x, v0y, mecpbar, potpbar, kinpbar):
             y = s(ay,v0y,y0,t)
             vx = v(ax,v0x,t)
             vy = v(ay,v0y,t)
-        kin = ecin(1, (vx**2 + vy**2)**0.5)
-        pot = epot(1, g, -(y-y0))
+        
+        kin = ecin(mass, (vx**2 + vy**2)**0.5)
+        pot = epot(mass, g, -(y-y0))
         mec = pot + kin
         loss = mec0 - mec
-        record_state(simulation_states, t, x, y, vx, vy, pot, kin, mec, loss)
-        draw(w, t, x, y, vx, vy, pot, kin, mec, loss, mecpbar, potpbar, kinpbar, simulation_states)
+        if y >= y0:
+            flag = True
+        else:
+            record_state(simulation_states, t, x, y, vx, vy, pot, kin, mec, loss)
+            draw(w, t, x, y, vx, vy, pot, kin, mec, loss, mecpbar, potpbar, kinpbar, simulation_states)
         iterations += 1
-        time.sleep(0.01)
-        
+        if flag:
+            break
+        speeds[0]
     token=True
-    #draw(w, t, x0, y0, v0x, v0y, 0, 0, 0, 0, mecpbar, potpbar, kinpbar) DRAW MAIN RESULTS AS SPEED DIFFERENCE HERE
     
 def record_state(simulation_states, t, x, y, vx, vy, pot, kin, mec, loss):
     simulation_state = {}
@@ -131,7 +139,7 @@ def initprojectile(v0ydelta=1, v0xdelta=1):
     callback_args[4] = v0x
     callback_args[5] = v0y
     
-    kin0 = ecin(1, (v0x**2 + v0y**2)**0.5)
+    kin0 = ecin(mass, (v0x**2 + v0y**2)**0.5)
     
     phi0 = acos(v0x/((v0x**2 + v0y**2)**0.5))
     w.create_line(x0, y0, x0 + size*cos(phi0), y0 - size*sin(phi0), fill="blue", tag="proj", width=size/3)
@@ -151,7 +159,7 @@ def initprojectile(v0ydelta=1, v0xdelta=1):
         for i in range(0, len(xcoords) - 1):
             w.create_line(xcoords[i], ycoords[i], xcoords[i+1], ycoords[i+1], fill="red", width=1, tag="traj")
     
-    maxeval = epot(1,g,x0) + kin0
+    maxeval = epot(mass,g,x0) + kin0
     mecpbar["maximum"] = maxeval
     potpbar["maximum"] = maxeval
     kinpbar["maximum"] = maxeval
@@ -159,7 +167,6 @@ def initprojectile(v0ydelta=1, v0xdelta=1):
     potpbar["value"] = 0
     kinpbar["value"] = kin0
     
-    drawmotionstate(w, v0x, v0y, kin0, kin0, 0, 0, 0)
 
 def mousewheelup(e):
     initprojectile(-1, 0)
@@ -185,17 +192,10 @@ def dumpswitched():
     bField = callback_args[9]
     bField.state(['{}disabled'.format('!' if air else '')])
     
-def drawmotionstate(w, vx, vy, mec, kin, pot, loss, t):
-    w.delete("text")
-    w.create_text(200,50, text="Speed x: {} m/s\nSpeed y: {} m/s\nSpeed magnitude: {} m/s\nKinetic energy: {} J\nPotential energy: {} J\nMechanical energy: {} J\nEnergy loss: {} J"\
-    .format(round(vx,5), round(-vy,5), round((vx**2 + vy**2)**0.5,5), round(kin,5), round(pot,5), round(mec,5), round(loss,5)), tag="text", font=("Courier", 8))
-    w.create_text(w.winfo_width()-100, 60, tag="timetext", text="t = {} s".format(round(t,5)), font=("Courier", 10))
     
 def draw(w, t, x, y, vx, vy, pot, kin, mec, loss, mecpbar, potbbar, kinpbar, simulation_states=None):
     w.delete("proj")
-    w.delete("timetext")
-    
-    drawmotionstate(w, vx, vy, mec, kin, pot, loss, t)
+
     
     phi0 = acos(vx/((vx**2 + vy**2)**0.5))
     if vy >= 0:
@@ -221,10 +221,11 @@ def create_plot(w):
     update_plot(w, None, True)    
     
 def update_plot(w, simulation_states, create=False):
-    px0 = 2*w.winfo_width()/3
-    py0 = w.winfo_height()/3.5
-    s0 = -100
-    sF = 100
+    px0 = 2*w.winfo_width()/3 - 50
+    py0 = w.winfo_height()/8.0
+    
+    s0 = -150
+    sF = 150
     pyf = py0 - s0 + sF
     pxf = w.winfo_width() - 20
     t0 = 0
@@ -242,7 +243,7 @@ def update_plot(w, simulation_states, create=False):
         w.create_text(pxf-50, py0+5, text="Speed x", fill=vxcol, font=("Courier", 8))
         w.create_text(pxf-50, py0+17, text="Speed y", fill=vycol, font=("Courier", 8))
         w.create_text(pxf-50, py0+29, text="||Speed||", fill=vmcol, font=("Courier", 8))
-        w.create_text(pxf-50, py0+41, text="Energy loss/100", fill=wcol, font=("Courier", 8))
+        w.create_text(pxf-50, py0+41, text="Energy loss", fill=wcol, font=("Courier", 8))
         abscissa = px0
         ordinate = py0 + 20 * y_scale
         base_valuey = ((pyf-py0)/2) / y_scale
@@ -276,10 +277,10 @@ def update_plot(w, simulation_states, create=False):
                          px0 + simulation_states[-1]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-1]['vx']*y_scale,\
                          fill=vxcol, tag="state")
                          
-            w.create_line(px0 + simulation_states[-2]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-2]['loss']/100*y_scale,\
-                                 px0 + simulation_states[-1]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-1]['loss']/100*y_scale,\
+            w.create_line(px0 + simulation_states[-2]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-2]['loss']*y_scale,\
+                                 px0 + simulation_states[-1]['t']*x_scale, py0 + (pyf-py0)/2 - simulation_states[-1]['loss']*y_scale,\
                                  fill=wcol, tag="state")
-                                 
+                                 proj
             w.create_line(px0 + simulation_states[-2]['t']*x_scale, py0 + (pyf-py0)/2 - speedm2*y_scale,\
                                  px0 + simulation_states[-1]['t']*x_scale, py0 + (pyf-py0)/2 -speedm1*y_scale,\
                                  fill=vmcol, tag="state")
@@ -302,9 +303,12 @@ kinpbar.place(x=530,y=50)
 
 dumped = ttk.Checkbutton(master, text="Dumped", command=dumpswitched).place(x=800,y=30)
 bField = ttk.Entry(master)
-bField.insert(0,"{}".format(b_air))
+bField.insert(0,"{}".format(b))
 bField.place(x=900, y=30)
 bField.state(['disabled'])
+
+ttk.Label(master, text="Kg/s").place(x=1070,y=30)
+
 w = Canvas(master, width=wwidth, height=wheight-100)
 
 w.create_line(x0, y0, wwidth, y0)
@@ -355,7 +359,6 @@ w.bind("<ButtonRelease-1>", mouserelease)
 w.bind("<Button-4>", mousewheelup)
 w.bind("<Button-5>", mousewheeldown)
 
-
 initprojectile(0, 0)
-w.create_text(wwidth-100, 60, tag="timetext", text="t = 0.00000 s", font=("Courier", 10))
+
 master.mainloop()
